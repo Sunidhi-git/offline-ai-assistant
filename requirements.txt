@@ -1,0 +1,6 @@
+Flask
+ollama
+PyPDF2
+psycopg2-binary
+python-pptx
+python-dotenv

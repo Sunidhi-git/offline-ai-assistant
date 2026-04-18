@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Assistant</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial;
+            display: flex;
+            height: 100vh;
+            background: #343541;
+            color: white;
+        }
+
+        .sidebar {
+            width: 250px;
+            background: #202123;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .new-chat {
+            background: #444654;
+            padding: 10px;
+            cursor: pointer;
+            margin-bottom: 10px;
+            text-align: center;
+            border-radius: 5px;
+        }
+
+        .history {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .history div {
+            padding: 8px;
+            border-bottom: 1px solid #333;
+            cursor: pointer;
+        }
+
+        .history div:hover {
+            background: #2a2b32;
+        }
+
+        .chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chat-header {
+            padding: 10px;
+            background: #202123;
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .delete-btn {
+            background: red;
+            border: none;
+            color: white;
+            padding: 5px 10px;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+
+        .chat-box {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .user, .bot {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 8px;
+            max-width: 70%;
+        }
+
+        .user {
+            background: #4CAF50;
+            margin-left: auto;
+        }
+
+        .bot {
+            background: #444654;
+        }
+
+        .input-area {
+            display: flex;
+            padding: 10px;
+            background: #40414f;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+        }
+
+        button {
+            margin-left: 10px;
+            padding: 10px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+    <div class="new-chat" onclick="newChat()">+ New Chat</div>
+    <div class="history" id="history"></div>
+</div>
+
+<!-- CHAT -->
+<div class="chat-container">
+
+    <!-- DELETE BUTTON (TOP RIGHT) -->
+    <div class="chat-header">
+        <button class="delete-btn" onclick="deleteCurrentChat()">Delete Chat</button>
+    </div>
+
+    <div class="chat-box" id="chatBox"></div>
+
+    <div class="input-area">
+        <input type="file" id="fileInput">
+        <input type="text" id="message" placeholder="Type a message..." onkeydown="handleEnter(event)">
+        <button onclick="sendMessage()">Send</button>
+    </div>
+</div>
+
+<script>
+
+let currentChatId = null;
+
+// ENTER KEY
+function handleEnter(e) {
+    if (e.key === "Enter") sendMessage();
+}
+
+// SEND MESSAGE
+async function sendMessage() {
+    let input = document.getElementById("message");
+    let msg = input.value.trim();
+    if (!msg) return;
+
+    addMessage(msg, "user");
+
+    let res = await fetch("/chat", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({message: msg})
+    });
+
+    let data = await res.json();
+    addMessage(data.response, "bot");
+
+    input.value = "";
+
+    await loadChats();
+}
+
+// ADD MESSAGE
+function addMessage(text, type) {
+    let div = document.createElement("div");
+    div.className = type;
+    div.innerText = text;
+
+    let box = document.getElementById("chatBox");
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+}
+
+// FILE UPLOAD
+document.getElementById("fileInput").addEventListener("change", async function() {
+    let file = this.files[0];
+    if (!file) return;
+
+    let formData = new FormData();
+    formData.append("file", file);
+
+    let res = await fetch("/upload", {
+        method: "POST",
+        body: formData
+    });
+
+    let data = await res.json();
+    addMessage(data.response, "bot");
+});
+
+// LOAD CHATS
+async function loadChats() {
+    let res = await fetch("/get_chats");
+    let chats = await res.json();
+
+    let historyDiv = document.getElementById("history");
+    historyDiv.innerHTML = "";
+
+    chats.forEach(chat => {
+        let div = document.createElement("div");
+        div.innerText = chat.title;
+
+        div.onclick = () => openChat(chat.id);
+
+        historyDiv.appendChild(div);
+    });
+}
+
+// OPEN CHAT
+async function openChat(chatId) {
+    currentChatId = chatId;
+
+    let res = await fetch(`/get_messages/${chatId}`);
+    let data = await res.json();
+
+    let chatBox = document.getElementById("chatBox");
+    chatBox.innerHTML = "";
+
+    data.forEach(msg => {
+        addMessage(msg.user, "user");
+        addMessage(msg.bot, "bot");
+    });
+}
+
+// DELETE CURRENT CHAT
+async function deleteCurrentChat() {
+    if (!currentChatId) return alert("No chat selected");
+
+    let confirmDelete = confirm("Delete this chat?");
+    if (!confirmDelete) return;
+
+    await fetch(`/delete_chat/${currentChatId}`, {
+        method: "DELETE"
+    });
+
+    document.getElementById("chatBox").innerHTML = "";
+    currentChatId = null;
+
+    loadChats();
+}
+
+// NEW CHAT
+async function newChat() {
+    await fetch("/new_chat", {method: "POST"});
+    document.getElementById("chatBox").innerHTML = "";
+    currentChatId = null;
+    loadChats();
+}
+
+// INIT
+window.onload = loadChats;
+
+</script>
+
+</body>
+</html>
