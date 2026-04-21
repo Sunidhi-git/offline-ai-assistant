@@ -2,6 +2,7 @@
 <html>
 <head>
     <title>AI Assistant</title>
+
     <style>
         body {
             margin: 0;
@@ -55,15 +56,21 @@
             background: #202123;
             display: flex;
             justify-content: flex-end;
+            flex-wrap: wrap;
+        }
+
+        .chat-header button {
+            margin-left: 5px;
+            padding: 6px 10px;
+            border-radius: 5px;
+            border: none;
+            background: #444654;
+            color: white;
+            cursor: pointer;
         }
 
         .delete-btn {
             background: red;
-            border: none;
-            color: white;
-            padding: 5px 10px;
-            cursor: pointer;
-            border-radius: 5px;
         }
 
         .chat-box {
@@ -77,6 +84,7 @@
             padding: 10px;
             border-radius: 8px;
             max-width: 70%;
+            white-space: pre-wrap;
         }
 
         .user {
@@ -101,13 +109,14 @@
             border-radius: 5px;
         }
 
-        button {
+        button.send {
             margin-left: 10px;
             padding: 10px;
             cursor: pointer;
         }
     </style>
 </head>
+
 <body>
 
 <!-- SIDEBAR -->
@@ -119,9 +128,12 @@
 <!-- CHAT -->
 <div class="chat-container">
 
-    <!-- DELETE BUTTON (TOP RIGHT) -->
     <div class="chat-header">
-        <button class="delete-btn" onclick="deleteCurrentChat()">Delete Chat</button>
+        <button onclick="downloadChat()">Download</button>
+        <button onclick="editLast()">Edit Last</button>
+        <button onclick="clearChat()">Clear</button>
+        <button onclick="renameChat()">Rename</button>
+        <button class="delete-btn" onclick="deleteCurrentChat()">Delete</button>
     </div>
 
     <div class="chat-box" id="chatBox"></div>
@@ -129,7 +141,7 @@
     <div class="input-area">
         <input type="file" id="fileInput">
         <input type="text" id="message" placeholder="Type a message..." onkeydown="handleEnter(event)">
-        <button onclick="sendMessage()">Send</button>
+        <button class="send" onclick="sendMessage()">Send</button>
     </div>
 </div>
 
@@ -137,42 +149,170 @@
 
 let currentChatId = null;
 
-// ENTER KEY
+// ENTER
 function handleEnter(e) {
     if (e.key === "Enter") sendMessage();
 }
 
+// LOADING
+function showLoading() {
+    let div = document.createElement("div");
+    div.id = "loading";
+    div.className = "bot";
+    div.innerText = "Thinking...";
+    document.getElementById("chatBox").appendChild(div);
+}
+
+function removeLoading() {
+    let el = document.getElementById("loading");
+    if (el) el.remove();
+}
+
 // SEND MESSAGE
-async function sendMessage() {
+async function sendMessage(editText=null) {
     let input = document.getElementById("message");
-    let msg = input.value.trim();
+    let msg = editText || input.value.trim();
     if (!msg) return;
 
     addMessage(msg, "user");
-
-    let res = await fetch("/chat", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({message: msg})
-    });
-
-    let data = await res.json();
-    addMessage(data.response, "bot");
-
     input.value = "";
 
-    await loadChats();
+    showLoading();
+
+    try {
+        let res = await fetch("/chat", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({message: msg})
+        });
+
+        let data = await res.json();
+        removeLoading();
+
+        if (data.image_url) addMessage(data, "bot");
+        else addMessage(data.response, "bot");
+
+        loadChats();
+
+    } catch {
+        removeLoading();
+        addMessage("Error ❌", "bot");
+    }
 }
 
 // ADD MESSAGE
-function addMessage(text, type) {
+function addMessage(msg, type) {
     let div = document.createElement("div");
     div.className = type;
-    div.innerText = text;
+
+    if (typeof msg === "object" && msg.image_url) {
+        div.innerHTML = `<p>${msg.response}</p><img src="${msg.image_url}" width="300">`;
+    }
+    else if (typeof msg === "object" && msg.image) {
+        div.innerHTML = `<p>${msg.user}</p><img src="${msg.image}" width="300">`;
+    }
+    else {
+        div.innerText = msg;
+    }
 
     let box = document.getElementById("chatBox");
     box.appendChild(div);
     box.scrollTop = box.scrollHeight;
+}
+
+// LOAD CHATS
+async function loadChats() {
+    let res = await fetch("/get_chats");
+    let chats = await res.json();
+
+    let historyDiv = document.getElementById("history");
+    historyDiv.innerHTML = "";
+
+    chats.forEach(chat => {
+        let div = document.createElement("div");
+        div.innerText = chat.title;
+        div.onclick = () => openChat(chat.id);
+        historyDiv.appendChild(div);
+    });
+}
+
+// OPEN CHAT
+async function openChat(chatId) {
+    currentChatId = chatId;
+
+    let res = await fetch(`/get_messages/${chatId}`);
+    let data = await res.json();
+
+    let chatBox = document.getElementById("chatBox");
+    chatBox.innerHTML = "";
+
+    data.forEach(msg => {
+        if (msg.image) {
+            addMessage(msg, "bot");
+        } else {
+            addMessage(msg.user, "user");
+            addMessage(msg.bot, "bot");
+        }
+    });
+}
+
+// DELETE CHAT
+async function deleteCurrentChat() {
+    if (!currentChatId) return alert("No chat selected");
+
+    if (!confirm("Delete this chat?")) return;
+
+    await fetch(`/delete_chat/${currentChatId}`, {method: "DELETE"});
+    document.getElementById("chatBox").innerHTML = "";
+    currentChatId = null;
+    loadChats();
+}
+
+// NEW CHAT
+async function newChat() {
+    await fetch("/new_chat", {method: "POST"});
+    document.getElementById("chatBox").innerHTML = "";
+    currentChatId = null;
+    loadChats();
+}
+
+// EDIT LAST
+function editLast() {
+    let msgs = document.querySelectorAll(".user");
+    if (!msgs.length) return;
+
+    let last = msgs[msgs.length - 1];
+    document.getElementById("message").value = last.innerText;
+
+    last.remove();
+    let bots = document.querySelectorAll(".bot");
+    if (bots.length) bots[bots.length - 1].remove();
+}
+
+// DOWNLOAD
+function downloadChat() {
+    if (!currentChatId) return;
+    window.location.href = `/download/${currentChatId}`;
+}
+
+// CLEAR
+function clearChat() {
+    if (!currentChatId) return;
+
+    fetch(`/clear_chat/${currentChatId}`, {method: "DELETE"})
+    .then(() => document.getElementById("chatBox").innerHTML = "");
+}
+
+// RENAME
+function renameChat() {
+    let name = prompt("Enter new name:");
+    if (!name || !currentChatId) return;
+
+    fetch("/rename_chat", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({chat_id: currentChatId, title: name})
+    }).then(loadChats);
 }
 
 // FILE UPLOAD
@@ -191,65 +331,6 @@ document.getElementById("fileInput").addEventListener("change", async function()
     let data = await res.json();
     addMessage(data.response, "bot");
 });
-
-// LOAD CHATS
-async function loadChats() {
-    let res = await fetch("/get_chats");
-    let chats = await res.json();
-
-    let historyDiv = document.getElementById("history");
-    historyDiv.innerHTML = "";
-
-    chats.forEach(chat => {
-        let div = document.createElement("div");
-        div.innerText = chat.title;
-
-        div.onclick = () => openChat(chat.id);
-
-        historyDiv.appendChild(div);
-    });
-}
-
-// OPEN CHAT
-async function openChat(chatId) {
-    currentChatId = chatId;
-
-    let res = await fetch(`/get_messages/${chatId}`);
-    let data = await res.json();
-
-    let chatBox = document.getElementById("chatBox");
-    chatBox.innerHTML = "";
-
-    data.forEach(msg => {
-        addMessage(msg.user, "user");
-        addMessage(msg.bot, "bot");
-    });
-}
-
-// DELETE CURRENT CHAT
-async function deleteCurrentChat() {
-    if (!currentChatId) return alert("No chat selected");
-
-    let confirmDelete = confirm("Delete this chat?");
-    if (!confirmDelete) return;
-
-    await fetch(`/delete_chat/${currentChatId}`, {
-        method: "DELETE"
-    });
-
-    document.getElementById("chatBox").innerHTML = "";
-    currentChatId = null;
-
-    loadChats();
-}
-
-// NEW CHAT
-async function newChat() {
-    await fetch("/new_chat", {method: "POST"});
-    document.getElementById("chatBox").innerHTML = "";
-    currentChatId = null;
-    loadChats();
-}
 
 // INIT
 window.onload = loadChats;

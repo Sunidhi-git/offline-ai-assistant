@@ -1,6 +1,10 @@
-Flask
+flask
 ollama
-PyPDF2
-psycopg2-binary
-python-pptx
 python-dotenv
+psycopg2-binary
+PyPDF2
+python-pptx
+diffusers
+torch
+transformers
+accelerate
